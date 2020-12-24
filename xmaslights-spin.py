@@ -47,7 +47,7 @@ def xmaslight():
     
     
     # YOU CAN EDIT FROM HERE DOWN
-    slow = 0.01     # pause between cycles (normally zero as it is already quite slow)
+    slow = 0     # pause between cycles (normally zero as it is already quite slow)
     orbAm = 15      # amount of orbs
     orbMaxRadius = 250
     orbBrightness = 0.7
