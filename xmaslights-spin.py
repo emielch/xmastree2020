@@ -1,17 +1,19 @@
 def xmaslight():
+    debug = False
     # This is the code from my 
     
     #NOTE THE LEDS ARE GRB COLOUR (NOT RGB)
     
     # Here are the libraries I am currently using:
     import time
-    import board
-    import neopixel
+    if not debug:
+        import board
+        import neopixel
     import re
     import math
     
     # You are welcome to add any of these:
-    # import random
+    import random
     # import numpy
     # import scipy
     # import sys
@@ -40,103 +42,161 @@ def xmaslight():
     #set up the pixels (AKA 'LEDs')
     PIXEL_COUNT = len(coords) # this should be 500
     
-    pixels = neopixel.NeoPixel(board.D18, PIXEL_COUNT, auto_write=False)
+    if not debug:
+        pixels = neopixel.NeoPixel(board.D18, PIXEL_COUNT, auto_write=False)
     
     
     # YOU CAN EDIT FROM HERE DOWN
-    
-    # I get a list of the heights which is not overly useful here other than to set the max and min altitudes
-    heights = []
+    slow = 0.01     # pause between cycles (normally zero as it is already quite slow)
+    orbAm = 15      # amount of orbs
+    orbMaxRadius = 250
+    orbBrightness = 0.7
+    orbSpd = 80
+    bouncePow = 30  # " push" amount when orbs moves out of range
+
+    import colorsys
+
+    xs = []
+    ys = []
+    zs = []
     for i in coords:
-        heights.append(i[2])
-    
-    min_alt = min(heights)
-    max_alt = max(heights)
-    
-    # VARIOUS SETTINGS
-    
-    # how much the rotation points moves each time
-    dinc = 1
-    
-    # a buffer so it does not hit to extreme top or bottom of the tree
-    buffer = 200
-    
-    # pause between cycles (normally zero as it is already quite slow)
-    slow = 0
-    
-    # startin angle (in radians)
-    angle = 0
-    
-    # how much the angle changes per cycle
-    inc = 0.1
-    
-    # the two colours in GRB order
-    # if you are turning a lot of them on at once, keep their brightness down please
-    colourA = [0,50,50] # purple
-    colourB = [50,50,0] # yellow
-    
-    
-    # INITIALISE SOME VALUES
-    
-    swap01 = 0
-    swap02 = 0
-    
-    # direct it move in
-    direction = -1
-    
-    # the starting point on the vertical axis
-    c = 100 
-    
+        xs.append(i[0])
+        ys.append(i[1])
+        zs.append(i[2])
+    dimensions = [[min(xs), max(xs)], [min(ys), max(ys)], [min(zs), max(zs)]]
+
+    pixelRGBs = []
+    for i in range(PIXEL_COUNT):
+        pixelRGBs.append([0, 0, 0])
+
+    def resetPixels():
+        for i in range(len(pixelRGBs)):
+            pixelRGBs[i] = [0, 0, 0]
+
+    currTime = time.time()
+    dt = 0
+    lastCalc = currTime
+
+    def constrain(val, min_val, max_val):
+        return min(max_val, max(min_val, val))
+
+    def isInDimensions(val, dims):
+        if val[0] < dims[0][0]:
+            return False
+        if val[0] > dims[0][1]:
+            return False
+        if val[1] < dims[1][0]:
+            return False
+        if val[1] > dims[1][1]:
+            return False
+        if val[2] < dims[2][0]:
+            return False
+        if val[2] > dims[2][1]:
+            return False
+        return True
+
+    class orb:
+        def __init__(self, radius, spd, hue, bri):
+            self.radius = radius
+            self.hue = hue
+            self.bri = bri
+            self.xPos = random.uniform(dimensions[0][0], dimensions[0][1])
+            self.yPos = random.uniform(dimensions[1][0], dimensions[1][1])
+            self.zPos = random.uniform(dimensions[2][0], dimensions[2][1])
+            self.xSpd = random.uniform(-spd, spd)
+            self.ySpd = random.uniform(-spd, spd)
+            self.zSpd = random.uniform(-spd, spd)
+
+        def move(self):
+            self.hue += 5 * dt
+            if self.hue >= 360:
+                self.hue -= 360
+
+            self.xPos += self.xSpd * dt
+            self.yPos += self.ySpd * dt
+            self.zPos += self.zSpd * dt
+
+            if self.xPos < dimensions[0][0]:
+                self.xSpd += bouncePow * dt
+            elif self.xPos > dimensions[0][1]:
+                self.xSpd -= bouncePow * dt
+
+            if self.yPos < dimensions[1][0]:
+                self.ySpd += bouncePow * dt
+            elif self.yPos > dimensions[1][1]:
+                self.ySpd -= bouncePow * dt
+
+            if self.zPos < dimensions[2][0]:
+                self.zSpd += bouncePow * dt
+            elif self.zPos > dimensions[2][1]:
+                self.zSpd -= bouncePow * dt
+
+        def render(self):
+            x1 = constrain(self.xPos - self.radius,
+                           dimensions[0][0], dimensions[0][1])
+            x2 = constrain(self.xPos + self.radius,
+                           dimensions[0][0], dimensions[0][1])
+            y1 = constrain(self.yPos - self.radius,
+                           dimensions[1][0], dimensions[1][1])
+            y2 = constrain(self.yPos + self.radius,
+                           dimensions[1][0], dimensions[1][1])
+            z1 = constrain(self.zPos - self.radius,
+                           dimensions[2][0], dimensions[2][1])
+            z2 = constrain(self.zPos + self.radius,
+                           dimensions[2][0], dimensions[2][1])
+            orbDimensions = [[x1, x2], [y1, y2], [z1, z2]]
+
+            # print("")
+            # print("{:.2f}".format(self.xPos),"{:.2f}".format(self.yPos),"{:.2f}".format(self.zPos))
+            for i in range(PIXEL_COUNT):
+                led = coords[i]
+                if not isInDimensions(led, orbDimensions):
+                    continue
+
+                dist = math.sqrt(
+                    ((self.xPos-led[0])**2)+((self.yPos-led[1])**2)+((self.zPos-led[2])**2))
+                bri = self.radius - dist
+                bri = bri / self.radius
+                if bri <= 0:
+                    continue
+
+                col = colorsys.hsv_to_rgb(self.hue/360, 1, bri*self.bri)
+                col = [element * 255 for element in col]
+                pixelRGBs[i] = [min(255, pixelRGBs[i][0]+col[0]), min(255, pixelRGBs[i][1]+col[1]), min(255, pixelRGBs[i][2]+col[2])]
+
+
+    orbs = []
+    for i in range(orbAm):
+        orbs.append(orb(random.uniform(orbMaxRadius*0.3, orbMaxRadius), orbSpd, (i*137.508) % 360, orbBrightness))
+
     # yes, I just run which run is true
     run = 1
     while run == 1:
         
         time.sleep(slow)
-        
-        LED = 0
-        while LED < len(coords):
-            if math.tan(angle)*coords[LED][1] <= coords[LED][2]+c:
-                pixels[LED] = colourA
-            else:
-                pixels[LED] = colourB
-            LED += 1
-        
-        # use the show() option as rarely as possible as it takes ages
-        # do not use show() each time you change a LED but rather wait until you have changed them all
-        pixels.show()
-        
-        # now we get ready for the next cycle
-        
-        angle += inc
-        if angle > 2*math.pi:
-            angle -= 2*math.pi
-            swap01 = 0
-            swap02 = 0
-        
-        # this is all to keep track of which colour is 'on top'
-        
-        if angle >= 0.5*math.pi:
-            if swap01 == 0:
-                colour_hold = [i for i in colourA]
-                colourA =[i for i in colourB]
-                colourB = [i for i in colour_hold]
-                swap01 = 1
-                
-        if angle >= 1.5*math.pi:
-            if swap02 == 0:
-                colour_hold = [i for i in colourA]
-                colourA =[i for i in colourB]
-                colourB = [i for i in colour_hold]
-                swap02 = 1
-        
-        # and we move the rotation point
-        c += direction*dinc
-        
-        if c <= min_alt+buffer:
-            direction = 1
-        if c >= max_alt-buffer:
-            direction = -1
-        
+
+        currTime = time.time()
+        dt = (currTime - lastCalc)  # calculate factor for variable framerate compensation
+        lastCalc = currTime
+
+        resetPixels()
+        for orb in orbs:
+            orb.move()
+        for orb in orbs:
+            orb.render()
+
+        if not debug:
+            for i in range(PIXEL_COUNT):
+                pixels[i] = pixelRGBs[i]
+            pixels.show()
+
+        # print a quickndirty visualization for debugging
+        if debug:
+            pixStr = ""
+            for i in range(PIXEL_COUNT):
+                pixStr += "{:.0f}".format(pixelRGBs[i][0]).zfill(3)+","
+            print(pixStr)
+
     return 'DONE'
 
 
